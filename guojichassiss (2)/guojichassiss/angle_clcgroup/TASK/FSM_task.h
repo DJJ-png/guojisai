@@ -47,6 +47,16 @@ typedef enum {
 	P_STATE_11//确认拿完
 }platform;
 
+typedef enum {
+	S_STATE_0=0,//第一列
+	S_STATE_1,//第二列
+	S_STATE_2,//第三列
+	S_STATE_3,//第四列
+	S_STATE_4,//
+	S_STATE_5,//
+	S_STATE_6,//里程计重置&&等待夹爪夹球
+}storage;
+
 typedef struct {
 	float last_angle;
 	float current_angle;

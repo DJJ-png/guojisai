@@ -13,19 +13,25 @@
 #include "road_calc.h"
 #include "motor_3508_task.h"
 #define pai 3.1415926
-#define v_f 0.04
+#define v_f 0.05
 #define v_s -0.02
-#define plat_len_same 0.15f
-#define plat_len_dif  0.24f
+#define plat_len_same 0.10f
+#define plat_len_dif  0.13f
+#define delta_rec 0.01f
+#define delta_rec_1 0.03f
+#define delta_rec_2 0.003f
+#define storage_delta 0.15f
+
 extern osThreadId FSM_TASKHandle;
 state_chassiss_list chassiss_state;
 state_road_list road_state;
 platform p_state;
+storage storage_state;
 road_f road_plat[5];
 
 extern uint8_t re_buf[4];
 extern pid_type_def motor_s,motor_p;
-extern fp32 set_yaw;
+extern fp32 set_yaw , yaw;
 extern fp32 INS_angle_deg[3];
 extern fp32 set_angle;
 extern speed_f speed;
@@ -34,16 +40,19 @@ extern fp32 set_v,vx,vy,vx_1,vy_1,set_omega;
 extern road_f road_gene;
 extern fp32 set_deg;
 extern uint8_t event,moveit,moveok,flickit;
+extern fp32 delta;
+fp32 delta_1[10],delta_2[10];
 motor_f motor_2;
 fp32 set_angle_LST;
-uint8_t road_calc_1=1,road_calc_2=0;
-uint32_t cnt,last_cnt;
+uint8_t road_calc_1=1,road_calc_2=0,rotate_1=0,rotate_2=0,x,x_delta,target,v_pla=1;//x,x_delta,target(立仓)
+uint32_t cnt,last_cnt,cnt_con;
 angle_f angle_secondmode;
 angle_f angle_thirdmode;
 fp32 INS_angle_set[11];
-fp32 cnt_set[4][11]={0};
-fp32 road_len[10];
+fp32 cnt_set[4][11]={0},count_1[10];
+fp32 road_len[10],len_add,len_add_1;
 fp32 plat_len[10];
+fp32 v_ca;
 
 void CHASSISS_PREPARE_SELF_CHECK(void);
 void RC_chassiss_crol(void);
@@ -53,6 +62,8 @@ void gimbal_stand_AUTO_correct(void);
 void road_init(road_f *road_1 , road_f *road_2 , road_f *road_3 , road_f *road_4 , road_f *road_gene);
 void FSM_begin(void);
 void plat_exchange(road_f *road_gen);
+void road_clear(road_f *road_1 , road_f *road_2 , road_f *road_3 , road_f *road_4 , road_f *road_gene);
+void storage_exchange(road_f *road_gen , storage s , uint8_t x);
 
 void chassiss_state_judge(state_chassiss_list state){
 	switch(state){
@@ -93,7 +104,7 @@ float v_calc(fp32 v){
 
 void stop_secend(){
 	vx=0; vy=0; set_omega=0;
-	HAL_Delay(800);
+	HAL_Delay(400);
 }
 ////方向     x^
 ////          |
@@ -136,10 +147,10 @@ void v_init(){
 }
 
 void road_len_init(){
-	road_len[0] = 0.82;
-	road_len[1] = road_len[0] + 1.7f;
-	road_len[2] = road_len[1] + 0.8f;
-	road_len[3] = road_len[2] + 1.0f;
+	road_len[0] = 0.910;
+	road_len[1] = road_len[0] + 1.77f;
+	road_len[2] = road_len[1] + 1.2f;
+	road_len[3] = road_len[2] + 1.4f;
 	road_len[4] = road_len[3] + 1.0f;
 	road_len[5] = road_len[4] + 1.8f;
 	road_len[6] = road_len[5] + 1.2f;
@@ -158,6 +169,50 @@ void plat_len_init(){
 	plat_len[6] = plat_len[5] + plat_len_same;
 }
 
+float v_calc_1(fp32 road , fp32 desti , fp32 v_stand , fp32 edg){
+			if(road<0){road*=-1;}
+			fp32 v;
+			if(road<edg){
+					fp32 k=road/edg;
+					v=k*v_stand;
+			}
+			else if(road>desti-edg){
+				fp32 j=desti-road;
+				j/=edg;
+				v=j*v_stand;
+			}
+			else{
+				v=v_stand;
+			}
+			return v;
+		}		
+
+float v_calc_2(fp32 road , fp32 desti , fp32 v_stand , fp32 edg){
+			if(road<0){road*=-1;}
+			fp32 v;
+			if(road<edg){
+					fp32 k=road/edg;
+					v=k*v_stand;
+			}
+			else if(road>desti-edg){
+				fp32 j=desti-road;
+				j/=edg;
+				v=j*v_stand;
+			}
+			else{
+				v=v_stand;
+			}
+			return v;
+		}		
+		
+		
+		
+		
+		
+		
+		
+		
+		///////////////////阶梯平台状态机
 void plat_state_judge(platform p_state){
 			switch(p_state){
 				
@@ -168,28 +223,41 @@ void plat_state_judge(platform p_state){
 					
 					break;
 				case P_STATE_2:
-					v_x_front(v_s);
+					v_ca=v_calc_1(road_plat[4].road +delta_rec_2 , plat_len_same , v_s , 0.03f);
+					v_x_front(v_ca);
 					break;
 				case P_STATE_3:
-					v_x_front(0);
+					len_add=plat_len_same;
+					v_ca=v_calc_1(road_plat[4].road - len_add +delta_rec_2 , plat_len_dif , v_s , 0.03f);
+					v_x_front(v_ca);
 					break;
 				case P_STATE_4:
-					v_x_front(0);
+					len_add=plat_len_same + plat_len_dif;
+					v_ca=v_calc_1(road_plat[4].road - len_add +delta_rec_2 , plat_len_same , v_s , 0.03f);
+					v_x_front(v_ca);
 					break;
 				case P_STATE_5:
-					v_x_front(0);
+					len_add=2 * plat_len_same + plat_len_dif;
+					v_ca=v_calc_1(road_plat[4].road - len_add +delta_rec_2 , plat_len_same , v_s , 0.03f);
+					v_x_front(v_ca);
 					break;
 				case P_STATE_6:
-					v_x_front(0);
+					len_add=3 * plat_len_same + plat_len_dif;
+					v_ca=v_calc_1(road_plat[4].road - len_add +delta_rec_2 , plat_len_same , v_s , 0.03f);
+					v_x_front(v_ca);
 					break;
 				case P_STATE_7:
-					v_x_front(0);
+					len_add=4 * plat_len_same + plat_len_dif;
+					v_ca=v_calc_1(road_plat[4].road - len_add +delta_rec_2 , plat_len_dif , v_s , 0.03f);
+					v_x_front(v_ca);
 					break;
 				case P_STATE_8:
-					v_x_front(v_s);
+					len_add=4 * plat_len_same + 2 * plat_len_dif;
+					v_ca=v_calc_1(road_plat[4].road - len_add +delta_rec_2 , plat_len_same , v_s , 0.03f);
+					v_x_front(v_ca);
 					break;
 				case P_STATE_9:
-					v_x_front(v_s);
+					
 					break;
 				case P_STATE_10:
 					if(1)
@@ -202,36 +270,87 @@ void plat_state_judge(platform p_state){
 			}
 		}
 
-void road_state_judge(state_road_list state , platform p_state){
+		
+		
+		
+		
+		
+		//////立仓状态机
+void storage_state_judge(storage s){
+	switch(s){
+		case S_STATE_0:
+			storage_exchange(&road_plat[4] , s , x);
+		break;
+		case S_STATE_1:
+			storage_exchange(&road_plat[4] , s , x);
+		break;
+		case S_STATE_2:
+			storage_exchange(&road_plat[4] , s , x);
+		break;
+		case S_STATE_3:
+			storage_exchange(&road_plat[4] , s , x);
+		break;
+		case S_STATE_4:
+			
+		break;
+		case S_STATE_5:
+			
+		break;
+		case S_STATE_6:
+			v_init();
+			road_clear(&road_plat[0] , &road_plat[1] , &road_plat[2] , &road_plat[3] , &road_plat[4]);
+			storage_exchange(&road_plat[4] , s , x);
+		break;
+	}
+}		
+		
+		
+		
+		
+		//////路程状态机
+		
+void road_state_judge(state_road_list state , platform p_state , storage storage_state){
 	switch(state){
 		case ROAD_STATE_0:
-			v_y_front(-v_f);
+			v_ca=v_calc_1(road_gene.road , road_len[0] , v_f , 0.25f);
+			v_y_front(-v_ca);
 			break;
 		case ROAD_STATE_1:
-			v_x_front(-v_f);
+			v_ca=v_calc_2(road_gene.road - road_len[0] +delta_rec , road_len[1]-road_len[0] , v_f , 0.25f);//+ delta_rec - delta_1[0]
+			v_x_front(-v_ca);
 
 			break;
 		case ROAD_STATE_2:
+			if(p_state!=10){
 			road_calc_1=0;
 			road_calc_2=1;
-			road_init(&road_plat[0] , &road_plat[1] , &road_plat[2] , &road_plat[3] , &road_plat[4]);			
 			plat_exchange(&road_plat[4]);
 			plat_state_judge(p_state);
-
-//			if(0){
-//			road_calc_1=1;
-//			road_calc_2=0;
-//			v_y_behind(v_f);
-//			}
+			}
+			else{
+			road_calc_1=1;
+			road_calc_2=0;
+			v_ca=v_calc_2(road_gene.road - road_len[1] +delta_rec , road_len[2]-road_len[1] , v_f , 0.25f);//+ delta_2[1] + delta_rec_1
+			v_x_front(-v_ca);
+			}
 			break;
 		case ROAD_STATE_3:
-		  v_x_behind(0);
+			v_ca=v_calc_2(road_gene.road - road_len[2] +delta_rec , road_len[3]-road_len[2] , v_f , 0.25f);
+		  v_y_front(-v_ca);
 			break;
-		case ROAD_STATE_4:
-			v_y_front(v_f);
+		case ROAD_STATE_4://出发去立仓
+			v_ca=v_calc_2(road_gene.road - road_len[3] +delta_rec , road_len[4]-road_len[3] , v_f , 0.25f);
+			v_x_front(0);
 			break;
-		case ROAD_STATE_5:
+		case ROAD_STATE_5://刚到达立仓
+			if(1){
+			road_calc_1=0;
+			road_calc_2=1;
+			storage_state_judge(storage_state);
+			}
+			if(0){
 			v_x_front(v_f);
+			}
 			break;
 		case ROAD_STATE_6:
 			v_y_behind(v_f);
@@ -246,7 +365,9 @@ void road_state_judge(state_road_list state , platform p_state){
 			v_y_front(v_f);
 			break;
 		case ROAD_STATE_10:
-			v_init();
+			
+			if(fabs(yaw - set_deg)<0.1f && rotate_2){rotate_1=1; cnt_con++;}
+			if(fabs(yaw - set_deg)>2.0f && rotate_1){rotate_1=0;}
 			break;
 		case ROAD_STATE_11:
 			v_init();
@@ -257,10 +378,24 @@ void road_state_judge(state_road_list state , platform p_state){
 
 
 
+
+
+
+
+
+
+
+
+
+
+////////////整体路径
+
+
 ////对于放球，向前0.06，回去0.14（加0.02），不同高度之间的相邻球是0.11    //或许???
 void state_exchange(road_f *road_gen){
 	road_len_init();
-	if(road_gen->road>=0&&road_gen->road<road_len[0]){//上移
+	if(road_gen->road>=0&&road_gen->road<road_len[0] - delta_rec &&count_1[0]==0){//上移road_gen->road>=0&&road_gen->road<road_len[0] - delta_rec +  delta_1[0]&&count_1[0]==0
+		delta_1[0]=delta;
 		road_state=0;
 		if(cnt_set[0][0]==0){
 			cnt_set[0][0]=1;
@@ -268,9 +403,17 @@ void state_exchange(road_f *road_gen){
 			set_deg=INS_angle_set[0];
 		}
 	}
-		if(road_gen->road>= road_len[0] &&road_gen->road< road_len[1] ){//阶梯平台
+		if(road_gen->road>= road_len[0] - delta_rec  && road_gen->road< road_len[1]  - delta_rec_1 &&count_1[1]==0 ){//阶梯平台road_gen->road>= road_len[0] - delta_rec + delta_1[0] && road_gen->road< road_len[1] - delta_2[1] - delta_rec_1 &&count_1[1]==0
+			delta_1[1]=delta;
+			if(delta_1[1] > delta_1[0]){
+				delta_2[1]=delta_1[1]-delta_2[0];
+			}
+			else{
+				delta_2[1]=delta_1[0]-delta_2[1];
+			}
 		road_state=1;
 		if(cnt_set[0][1]==0){
+			count_1[0]=1;
 			stop_secend();
 			cnt_set[0][1]=1;
 			INS_angle_set[1]=INS_angle_deg[0]+180;
@@ -278,9 +421,10 @@ void state_exchange(road_f *road_gen){
 
 		}
 	}
-		if(road_gen->road>= road_len[1] &&road_gen->road< road_len[2] ){//立桩前面
+		if(road_gen->road>= road_len[1]  - delta_rec_1 &&road_gen->road< road_len[2] &&count_1[2]==0){//立桩前面
 		road_state=2;
     if(cnt_set[0][2]==0){
+			count_1[1]=1;
 			stop_secend();
 			cnt_set[0][2]=1;
 			INS_angle_set[2]=INS_angle_deg[0]+180;
@@ -288,14 +432,28 @@ void state_exchange(road_f *road_gen){
 		}	
 	}
 		if(road_gen->road>= road_len[2] &&road_gen->road< road_len[3] ){//立桩旁边
+			if(rotate_1==0 && rotate_2==0){
+				road_calc_1=0;
+				road_calc_2=0;
+				road_state=10;
+				set_deg=yaw-180;
+				if(set_deg<-180){set_deg+=360;}
+				rotate_2=1;
+			}
+		if(rotate_1&&rotate_2){
 		road_state=3;
-		if(cnt_set[0][3]==0){
+	}
+		if(cnt_set[0][3]==0 && cnt_con>100){
+			
 			stop_secend();
 			cnt_set[0][3]=1;
 			INS_angle_set[3]=INS_angle_deg[0]+180;
 			set_deg=INS_angle_set[3];
 		}
 	}
+		
+	
+	
 		if(road_gen->road>= road_len[3] &&road_gen->road< road_len[4] ){//绕过立桩
 		road_state=4;
 		if(cnt_set[0][4]==0){
@@ -312,6 +470,7 @@ void state_exchange(road_f *road_gen){
 			cnt_set[0][5]=1;
 			INS_angle_set[5]=INS_angle_deg[0]+180;
 			set_deg=INS_angle_set[5];
+			road_clear(&road_plat[0] , &road_plat[1] , &road_plat[2] , &road_plat[3] , &road_plat[4]);
 		}
 	}
 	if(road_gen->road>= road_len[5] &&road_gen->road< road_len[6] ){//前往圆盘机
@@ -363,10 +522,18 @@ void state_exchange(road_f *road_gen){
 
 
 
+
+
+
+
+
+
+/////////////////////////////////////////阶梯平台
+
 void plat_exchange(road_f *road_gen){
 	plat_len_init();
-	if(road_gen->road>= 0 &&road_gen->road< plat_len[0] ){//第一个（低）
-
+	if(road_gen->road>= 0 &&road_gen->road< plat_len[0] ){//第一个（低）-delta_rec
+		road_gen->road=0.006;
 	  p_state=2;
 		if(cnt_set[1][0]==0){
 			stop_secend();
@@ -374,7 +541,7 @@ void plat_exchange(road_f *road_gen){
 		}
 	}
 	if(road_gen->road>= plat_len[0] &&road_gen->road< plat_len[1] ){
-									moveok=1;			event=3;
+									event=3;
 	  p_state=3;
 		if(cnt_set[1][1]==0){
 			stop_secend();
@@ -432,9 +599,44 @@ void plat_exchange(road_f *road_gen){
 //	}
 }
 	
+
+
+
+
+
+
+
+
+//////////////立体仓库
+
+void storage_exchange(road_f *road_gen , storage s , uint8_t x){
+	if(x!=s && s!=6){
+		x_delta=x-s;
+		if(x_delta<0){x_delta*=-1;v_pla=0;}
+		target = x_delta * storage_delta;
+	}
+	if(road_gen->road<=0 && road_gen->road <= target-delta_rec){
+		v_ca=v_calc_1(road_gen->road +delta_rec_2 , target , v_s , 0.03f*x_delta);
+		if(v_pla){
+			v_x_behind(v_ca);
+		}
+		else{v_x_front(v_ca);}
+	}
+	if(road_gen->road >= target-delta_rec && s!=6 && target - delta_rec>0){
+		s=6;
+		target=0;
+		x_delta=0;
+		v_pla=1;
+	}
+	if(fabs(road_gen->road - 0)<0.01f){
+		s=x;
+	}
+}
+
+
 void FSM_begin(void){	
 	state_exchange(&road_gene);
-	road_state_judge(road_state , p_state);
+	road_state_judge(road_state , p_state , storage_state);
 }
 	
 void FSM_task(void const * argument){

@@ -31,7 +31,7 @@ fp32 tempdistance=250;
 state_way gimbal_state;
 
 uint16_t delaycount=0,flickcount=0,catchcount=0,bodancount=0,flickit=0;
-int pwm[4]={2000,2000,1500,2300};
+int pwm[4]={1500,2000,1500,2300};
 
 
 uint8_t event=0;
@@ -163,7 +163,7 @@ void motor_3508_init()
 	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_3);
 	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_4);
 	
-	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,pwm[0]);               //2000-500
+	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,pwm[0]);               //1500-2000
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,pwm[1]);               //2000-1500
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_3,pwm[2]);								//2000-1500
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_4,pwm[3]);								//2500
@@ -425,7 +425,7 @@ void motor_state(uint8_t actionway)
 					delaycount++;
 					if(delaycount>500)
 					{
-						__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,500);
+						__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,2000);
 					}				
 					
 					if(delaycount>2000)
@@ -746,12 +746,11 @@ void motor_state(uint8_t actionway)
 				motor2.pwm_out=PID_calc(&motor2.pid_s, motor_chassis[motor2_3508].speed_rpm,motor2.rmp);
 				delaycount++;
 				if(delaycount<500)
-				__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_3,500+delaycount);
+				__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_3,2000-delaycount);
 		
 				if(delaycount>500)
 				{
 					
-					__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,500);
 					__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_3,1500-delaycount);
 				}	
 				if(delaycount>1000&&delaycount<1500)

@@ -39,7 +39,7 @@ fp32 kp_3_s=950.0f,ki_3_s=0.1f,kd_3_s=1000.0f;
 fp32 kp_4_s=900.0f,ki_4_s=0.2f,kd_4_s=1000.0f;
 fp32 kp_p=3.0f,ki_p=0.0f,kd_p=0.0f;
 float PID_s[3];
-float PID_p[3]={3.0f,0.0f,0.0f};
+float PID_p[3]={5.0f,2.0f,2000.0f};
 fp32 set_omega;
 fp32 set_v,vx,vy,vx_1,vy_1;
 fp32 rx=0.14195,ry=0.109,s=0.0765,r=0.03825f;//单位为米
@@ -171,8 +171,8 @@ void rpm_receive(speed_f *speed){
 
 void PID_CROL(fp32 set_yaw){
 	eight_calc(channel);
-	yaw=INS_angle_deg[0]+180;
 	rpm_receive(&speed);
+	yaw=INS_angle_deg[0]+180;
 	yaw_cal=yaw_calc(yaw,set_yaw);
 	set_omega=angle_calc(&motor_p,yaw_relat,yaw_cal);  
 	pid_calc(&motor,vx,vy,set_omega);

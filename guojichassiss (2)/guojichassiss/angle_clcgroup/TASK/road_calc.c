@@ -23,6 +23,7 @@ extern uint8_t road_calc_1,road_calc_2;
 extern motor_measure_t motor_chassis[7];
 extern state_way gimbal_state;
 uint8_t count=0;
+fp32 delta;
 
 void motor_calcjiao()
 {
@@ -118,6 +119,28 @@ road_averg(road_1 , road_2 , road_3 , road_4 , road_gene);
 	Road_calc(road_4,3);
 }
 
+void clear(fp32 x , fp32 y){
+	x=0;y=0;
+}
+
+void road_clear(road_f *road_1 , road_f *road_2 , road_f *road_3 , road_f *road_4 , road_f *road_gene){
+	clear(road_1->times , road_1->road);
+	clear(road_2->times , road_2->road);
+	clear(road_3->times , road_3->road);
+	clear(road_4->times , road_4->road);
+	clear(road_gene->times , road_gene->road);
+}
+
+fp32 road_delta_calc(road_f *road_1 , road_f *road_2 , road_f *road_3 , road_f *road_4 ){
+	fp32 x= road_1->times + road_4->times;
+	fp32 y= road_2->times + road_3->times;
+	fp32 z=x-y;
+	if(z<0)z*=-1;
+	z*=road_1->per_lenth;
+	z/=36.0f;
+	return z;
+}
+
 void road_calc(void const * argument){
 while(1){
 	motor_calcjiao();
@@ -127,6 +150,7 @@ while(1){
 	if(road_calc_2){
 	road_init(&road_plat[0] , &road_plat[1] , &road_plat[2] , &road_plat[3] , &road_plat[4]);
 	}
+	delta=road_delta_calc(&road_1 , &road_2 , &road_3 , &road_4);
 	vTaskDelay(1);
 }
 }
